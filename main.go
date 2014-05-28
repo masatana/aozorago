@@ -17,7 +17,7 @@ func parseHTML(r io.Reader, urlch chan string, finch chan bool) {
 		tokenType := d.Next()
 		if tokenType == html.ErrorToken {
 			finch <- true
-			return
+			break
 		}
 		token := d.Token()
 		switch tokenType {
@@ -56,12 +56,16 @@ func main() {
 	}
 	defer resp.Body.Close()
 	go parseHTML(resp.Body, urlch, finch)
+LOOP:
 	for {
-		if <-finch {
-			break
+		select {
+		case url := <-urlch:
+			fmt.Println(url)
+		case <-finch:
+			break LOOP
 		}
-		fmt.Println(<-urlch)
 	}
+	return
 	//body, err := ioutil.ReadAll(resp.Body)
 	//fmt.Printf("%T", body)
 }
