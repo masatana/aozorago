@@ -5,20 +5,54 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"regexp"
 	"strings"
 	"time"
 
 	"code.google.com/p/go.net/html"
 )
 
-func contains(a string, stringArray []string) bool {
+func contains(stringArray []string, a string) bool {
 	for _, v := range stringArray {
 		if v == a {
 			return true
 		}
 	}
 	return false
+}
+
+func fetchAllCardPages(urls []string, urlch chan string, finch chan bool) {
+	for _, url := range urls {
+		if len(url) == 0 {
+			continue
+		}
+		resp, err := http.Get(url)
+		if err != nil {
+			log.Fatalln(err)
+		}
+		defer resp.Body.Close()
+		d := html.NewTokenizer(resp.Body)
+		for {
+			tokenType := d.Next()
+			if tokenType == html.ErrorToken {
+				time.Sleep(time.Second * 1)
+				break
+			}
+			token := d.Token()
+			switch tokenType {
+			case html.StartTagToken:
+				switch token.Data {
+				case "a":
+					for _, v := range token.Attr {
+						if v.Key == "href" && strings.HasPrefix(v.Val, "../cards") {
+							urlch <- "http://www.aozora.gr.jp" + strings.Trim(v.Val, "..")
+							break
+						}
+					}
+				}
+			}
+		}
+	}
+	finch <- true
 }
 
 func fetchAllIndexUrls(urls []string, urlch chan string, finch chan bool) {
@@ -55,7 +89,8 @@ func fetchAllIndexUrls(urls []string, urlch chan string, finch chan bool) {
 				case "a":
 					for _, v := range token.Attr {
 						if v.Key == "href" && strings.HasPrefix(v.Val, "sakuhin") {
-							urlch <- "http://www.aozora.gr.jp/" + v.Val
+							urlch <- "http://www.aozora.gr.jp/index_pages/" + v.Val
+							break
 						}
 					}
 				}
@@ -133,25 +168,24 @@ ALLINDEXLOOP:
 			break ALLINDEXLOOP
 		}
 	}
-	pattern, err := regexp.Compile("_([a-z]+)[0-9]+")
-	if err != nil {
-		log.Fatalln(err)
-	}
-	m := make(map[string][]string)
+	allIndexUrls := make([]string, len(urls))
 	for _, url := range urls {
 		if len(url) == 0 {
 			continue
 		}
-		key := pattern.FindStringSubmatch(url)[1]
-		if !contains(url, m[key]) {
-			m[key] = append(m[key], url)
+		if !contains(allIndexUrls, url) {
+			allIndexUrls = append(allIndexUrls, url)
 		}
 	}
-	for k, v := range m {
-		if k == "a" {
-			fmt.Println(k, len(v))
+	go fetchAllCardPages(allIndexUrls, urlch, finch)
+ALLCARDPAGES:
+	for {
+		select {
+		case url := <-urlch:
+			fmt.Println(url)
+		case <-finch:
+			break ALLCARDPAGES
 		}
 	}
-
 	return
 }
