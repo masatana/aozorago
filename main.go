@@ -11,6 +11,12 @@ import (
 	"code.google.com/p/go.net/html"
 )
 
+type Card struct {
+	author      string
+	sakuhinName string
+	url         string
+}
+
 func contains(stringArray []string, a string) bool {
 	for _, v := range stringArray {
 		if v == a {
@@ -20,7 +26,68 @@ func contains(stringArray []string, a string) bool {
 	return false
 }
 
-func retrieveAllCardPages(urls []string, urlch chan string, finch chan bool) {
+func retrieveCards(urls []string, cardch chan Card, finch chan bool) {
+	for _, url := range urls {
+		if len(url) == 0 {
+			continue
+		}
+		resp, err := http.Get(url)
+		if err != nil {
+			log.Fatalln(err)
+		}
+		defer resp.Body.Close()
+		d := html.NewTokenizer(resp.Body)
+		var card Card
+		for {
+			isSakuhinName := false
+			isAuthorName := false
+			isTd := false
+			tokenType := d.Next()
+			if tokenType == html.ErrorToken {
+				cardch <- card
+				time.Sleep(time.Second * 1)
+				break
+			}
+			token := d.Token()
+			switch tokenType {
+			case html.StartTagToken:
+				switch token.Data {
+				case "a":
+					for _, v := range token.Attr {
+						if v.Key == "href" && strings.HasSuffix(v.Val, ".zip") {
+							s := strings.Split(url, "/")
+							card.url = strings.Join(s[:len(s)-1], "/") + v.Val
+							break
+						}
+					}
+				case "td":
+					isTd = true
+				}
+			case html.TextToken:
+				switch {
+				case isTd && strings.Contains(token.String(), "著者名"):
+					isAuthorName = true
+				case isTd && strings.Contains(token.String(), "作品名"):
+					isSakuhinName = true
+				case isAuthorName && len(token.String()) != 0:
+					card.author = token.String()
+					isAuthorName = false
+				case isSakuhinName && len(token.String()) != 0:
+					card.sakuhinName = token.String()
+					isSakuhinName = false
+				}
+			case html.EndTagToken:
+				switch token.Data {
+				case "td":
+					isTd = false
+				}
+			}
+		}
+	}
+	finch <- true
+}
+
+func retrieveCardPages(urls []string, urlch chan string, finch chan bool) {
 	for _, url := range urls {
 		if len(url) == 0 {
 			continue
@@ -168,15 +235,17 @@ ALLINDEXLOOP:
 			allIndexUrls = append(allIndexUrls, url)
 		}
 	}
-	go retrieveAllCardPages(allIndexUrls, urlch, finch)
+	cardPageUrls := make([]string, 100)
+	go retrieveCardPages(allIndexUrls, urlch, finch)
 ALLCARDPAGES:
 	for {
 		select {
 		case url := <-urlch:
-			fmt.Println(url)
+			cardPageUrls = append(cardPageUrls, url)
 		case <-finch:
 			break ALLCARDPAGES
 		}
 	}
+	fmt.Println(len(cardPageUrls))
 	return
 }
