@@ -20,7 +20,7 @@ func contains(stringArray []string, a string) bool {
 	return false
 }
 
-func fetchAllCardPages(urls []string, urlch chan string, finch chan bool) {
+func retrieveAllCardPages(urls []string, urlch chan string, finch chan bool) {
 	for _, url := range urls {
 		if len(url) == 0 {
 			continue
@@ -55,10 +55,10 @@ func fetchAllCardPages(urls []string, urlch chan string, finch chan bool) {
 	finch <- true
 }
 
-func fetchAllIndexUrls(urls []string, urlch chan string, finch chan bool) {
+func retrieveAllIndexUrls(urls []string, urlch chan string, finch chan bool) {
 	for _, url := range urls {
 		if len(url) == 0 {
-			// TODO:Should check in fetchFirstIndexUrls
+			// TODO:Should check in retrieveFirstIndexUrls
 			continue
 		}
 		resp, err := http.Get(url)
@@ -77,15 +77,6 @@ func fetchAllIndexUrls(urls []string, urlch chan string, finch chan bool) {
 			switch tokenType {
 			case html.StartTagToken:
 				switch token.Data {
-				/*
-					case "table":
-						for _, v := range token.Attr {
-							if v.Key == "class" && v.Val == "list" {
-								isSakuhinList = true
-								break
-							}
-						}
-				*/
 				case "a":
 					for _, v := range token.Attr {
 						if v.Key == "href" && strings.HasPrefix(v.Val, "sakuhin") {
@@ -100,7 +91,7 @@ func fetchAllIndexUrls(urls []string, urlch chan string, finch chan bool) {
 	finch <- true
 }
 
-func fetchFirstIndexUrls(r io.Reader, urlch chan string, finch chan bool) {
+func retrieveFirstIndexUrls(r io.Reader, urlch chan string, finch chan bool) {
 	insideSakuhinListTable := false
 	d := html.NewTokenizer(r)
 	for {
@@ -148,7 +139,7 @@ func main() {
 		log.Fatalln(err)
 	}
 	defer resp.Body.Close()
-	go fetchFirstIndexUrls(resp.Body, urlch, finch)
+	go retrieveFirstIndexUrls(resp.Body, urlch, finch)
 FIRSTINDEXLOOP:
 	for {
 		select {
@@ -158,7 +149,7 @@ FIRSTINDEXLOOP:
 			break FIRSTINDEXLOOP
 		}
 	}
-	go fetchAllIndexUrls(urls, urlch, finch)
+	go retrieveAllIndexUrls(urls, urlch, finch)
 ALLINDEXLOOP:
 	for {
 		select {
@@ -177,7 +168,7 @@ ALLINDEXLOOP:
 			allIndexUrls = append(allIndexUrls, url)
 		}
 	}
-	go fetchAllCardPages(allIndexUrls, urlch, finch)
+	go retrieveAllCardPages(allIndexUrls, urlch, finch)
 ALLCARDPAGES:
 	for {
 		select {
