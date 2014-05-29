@@ -5,15 +5,26 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"regexp"
 	"strings"
+	"time"
 
 	"code.google.com/p/go.net/html"
 )
 
-func fetchAllIndexURLs(urls *[]string, urlch chan string, finch chan bool) {
-	for _, url := range *urls {
+func contains(a string, stringArray []string) bool {
+	for _, v := range stringArray {
+		if v == a {
+			return true
+		}
+	}
+	return false
+}
+
+func fetchAllIndexUrls(urls []string, urlch chan string, finch chan bool) {
+	for _, url := range urls {
 		if len(url) == 0 {
-			// TODO:Should check in fetchFirstIndexURLs
+			// TODO:Should check in fetchFirstIndexUrls
 			continue
 		}
 		resp, err := http.Get(url)
@@ -25,6 +36,7 @@ func fetchAllIndexURLs(urls *[]string, urlch chan string, finch chan bool) {
 		for {
 			tokenType := d.Next()
 			if tokenType == html.ErrorToken {
+				time.Sleep(time.Second * 1)
 				break
 			}
 			token := d.Token()
@@ -53,7 +65,7 @@ func fetchAllIndexURLs(urls *[]string, urlch chan string, finch chan bool) {
 	finch <- true
 }
 
-func fetchFirstIndexURLs(r io.Reader, urlch chan string, finch chan bool) {
+func fetchFirstIndexUrls(r io.Reader, urlch chan string, finch chan bool) {
 	insideSakuhinListTable := false
 	d := html.NewTokenizer(r)
 	for {
@@ -101,7 +113,7 @@ func main() {
 		log.Fatalln(err)
 	}
 	defer resp.Body.Close()
-	go fetchFirstIndexURLs(resp.Body, urlch, finch)
+	go fetchFirstIndexUrls(resp.Body, urlch, finch)
 FIRSTINDEXLOOP:
 	for {
 		select {
@@ -111,7 +123,7 @@ FIRSTINDEXLOOP:
 			break FIRSTINDEXLOOP
 		}
 	}
-	go fetchAllIndexURLs(&urls, urlch, finch)
+	go fetchAllIndexUrls(urls, urlch, finch)
 ALLINDEXLOOP:
 	for {
 		select {
@@ -121,7 +133,25 @@ ALLINDEXLOOP:
 			break ALLINDEXLOOP
 		}
 	}
-	fmt.Println(len(urls))
+	pattern, err := regexp.Compile("_([a-z]+)[0-9]+")
+	if err != nil {
+		log.Fatalln(err)
+	}
+	m := make(map[string][]string)
+	for _, url := range urls {
+		if len(url) == 0 {
+			continue
+		}
+		key := pattern.FindStringSubmatch(url)[1]
+		if !contains(url, m[key]) {
+			m[key] = append(m[key], url)
+		}
+	}
+	for k, v := range m {
+		if k == "a" {
+			fmt.Println(k, len(v))
+		}
+	}
 
 	return
 }
