@@ -5,6 +5,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"os"
 	"path"
 	"strings"
 	"time"
@@ -18,19 +19,6 @@ type Card struct {
 	url         string
 }
 
-func (c *Card) Save(saveRootPath string) error {
-	fmt.Println(c.sakuhinName, c.url)
-	return nil
-	/*
-		savePath := path.Join(saveRootPath, c.author, c.sakuhinName)
-		err := os.MkdirAll(savePath, 0644)
-		if err != nil {
-			return err
-		}
-		return nil
-	*/
-}
-
 func contains(stringArray []string, a string) bool {
 	for _, v := range stringArray {
 		if v == a {
@@ -38,6 +26,28 @@ func contains(stringArray []string, a string) bool {
 		}
 	}
 	return false
+}
+
+func (c *Card) Save(saveRootPath string) error {
+	savePath := path.Join(saveRootPath, c.author)
+	err := os.MkdirAll(savePath, 0777)
+	if err != nil {
+		return err
+	}
+	fmt.Println(c)
+	/*
+		resp, err := http.Get(c.url)
+		if err != nil {
+			return err
+		}
+		defer resp.Body.Close()
+		fileContent, err := ioutil.ReadAll(resp.Body)
+		if err != nil {
+			return err
+		}
+		ioutil.WriteFile(path.Join(savePath, c.sakuhinName+".zip"), fileContent, 0777)
+	*/
+	return nil
 }
 
 func retrieveCards(urls []string, cardch chan Card, finch chan bool) {
@@ -70,7 +80,7 @@ func retrieveCards(urls []string, cardch chan Card, finch chan bool) {
 					for _, v := range token.Attr {
 						if v.Key == "href" && strings.HasSuffix(v.Val, ".zip") {
 							s := strings.Split(url, "/")
-							card.url = path.Join(strings.Join(s[:len(s)-1], "/"), v.Val)
+							card.url = strings.Join(s[:len(s)-1], "/") + v.Val[1:]
 							break
 						}
 					}
@@ -79,9 +89,9 @@ func retrieveCards(urls []string, cardch chan Card, finch chan bool) {
 				}
 			case html.TextToken:
 				switch {
-				case isTd && strings.Contains(token.String(), "著者名"):
+				case strings.Contains(token.String(), "著者名"):
 					isAuthorName = true
-				case isTd && strings.Contains(token.String(), "作品名"):
+				case strings.Contains(token.String(), "作品名"):
 					isSakuhinName = true
 				case isAuthorName && len(token.String()) != 0:
 					card.author = token.String()
@@ -266,7 +276,7 @@ ALLCARDS:
 	for {
 		select {
 		case card := <-cardch:
-			err := card.Save("test")
+			err := card.Save("/home/masatana/aozora.gr.jp")
 			if err != nil {
 				log.Fatalln(err)
 			}
