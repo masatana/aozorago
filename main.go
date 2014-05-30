@@ -62,10 +62,11 @@ func retrieveCards(urls []string, cardch chan Card, finch chan bool) {
 		defer resp.Body.Close()
 		d := html.NewTokenizer(resp.Body)
 		var card Card
+		isSakuhinName := false
+		isAuthorName := false
+		isTd := false
+		isA := false
 		for {
-			isSakuhinName := false
-			isAuthorName := false
-			isTd := false
 			tokenType := d.Next()
 			if tokenType == html.ErrorToken {
 				cardch <- card
@@ -77,6 +78,7 @@ func retrieveCards(urls []string, cardch chan Card, finch chan bool) {
 			case html.StartTagToken:
 				switch token.Data {
 				case "a":
+					isA = true
 					for _, v := range token.Attr {
 						if v.Key == "href" && strings.HasSuffix(v.Val, ".zip") {
 							s := strings.Split(url, "/")
@@ -88,12 +90,13 @@ func retrieveCards(urls []string, cardch chan Card, finch chan bool) {
 					isTd = true
 				}
 			case html.TextToken:
+				fmt.Println(token)
 				switch {
-				case strings.Contains(token.String(), "著者名"):
+				case isTd && strings.Contains(token.String(), "著者名："):
 					isAuthorName = true
-				case strings.Contains(token.String(), "作品名"):
+				case isTd && strings.Contains(token.String(), "作品名："):
 					isSakuhinName = true
-				case isAuthorName && len(token.String()) != 0:
+				case isA && isAuthorName && len(token.String()) != 0:
 					card.author = token.String()
 					isAuthorName = false
 				case isSakuhinName && len(token.String()) != 0:
@@ -104,6 +107,8 @@ func retrieveCards(urls []string, cardch chan Card, finch chan bool) {
 				switch token.Data {
 				case "td":
 					isTd = false
+				case "a":
+					isA = false
 				}
 			}
 		}
