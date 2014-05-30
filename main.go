@@ -5,6 +5,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"path"
 	"strings"
 	"time"
 
@@ -15,6 +16,19 @@ type Card struct {
 	author      string
 	sakuhinName string
 	url         string
+}
+
+func (c *Card) Save(saveRootPath string) error {
+	fmt.Println(c.sakuhinName, c.url)
+	return nil
+	/*
+		savePath := path.Join(saveRootPath, c.author, c.sakuhinName)
+		err := os.MkdirAll(savePath, 0644)
+		if err != nil {
+			return err
+		}
+		return nil
+	*/
 }
 
 func contains(stringArray []string, a string) bool {
@@ -56,7 +70,7 @@ func retrieveCards(urls []string, cardch chan Card, finch chan bool) {
 					for _, v := range token.Attr {
 						if v.Key == "href" && strings.HasSuffix(v.Val, ".zip") {
 							s := strings.Split(url, "/")
-							card.url = strings.Join(s[:len(s)-1], "/") + v.Val
+							card.url = path.Join(strings.Join(s[:len(s)-1], "/"), v.Val)
 							break
 						}
 					}
@@ -246,6 +260,19 @@ ALLCARDPAGES:
 			break ALLCARDPAGES
 		}
 	}
-	fmt.Println(len(cardPageUrls))
+	cardch := make(chan Card)
+	go retrieveCards(cardPageUrls, cardch, finch)
+ALLCARDS:
+	for {
+		select {
+		case card := <-cardch:
+			err := card.Save("test")
+			if err != nil {
+				log.Fatalln(err)
+			}
+		case <-finch:
+			break ALLCARDS
+		}
+	}
 	return
 }
