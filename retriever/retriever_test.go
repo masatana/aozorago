@@ -1,4 +1,4 @@
-package aozorago
+package retriever
 
 import "testing"
 
