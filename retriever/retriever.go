@@ -5,6 +5,7 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"path"
 	"strings"
@@ -13,21 +14,27 @@ import (
 	"code.google.com/p/go.net/html"
 )
 
+// Card stores card page's information.
+// (e.g. http://www.aozora.gr.jp/cards/000020/card2569.html
 type Card struct {
 	author      string
 	sakuhinName string
-	url         string
+	U           *url.URL
 	connector   string
 }
 
+// NewCard is a constructor of Card.
+// Define the default connector.
 func NewCard() *Card {
 	return &Card{connector: "_"}
 }
 
+// ConcatSpace concatenates a space-divided string with a connector.
 func ConcatSpace(s string, connector string) string {
 	return strings.Join(strings.Fields(s), connector)
 }
 
+// Contains checks if a string exists in an array of strings
 func Contains(stringArray []string, a string) bool {
 	for _, v := range stringArray {
 		if v == a {
@@ -37,13 +44,14 @@ func Contains(stringArray []string, a string) bool {
 	return false
 }
 
+// Save downloads a file referenced by url which is in Card.
 func (c *Card) Save(dataRootPath string) error {
 	dstPath := path.Join(dataRootPath, c.author)
 	err := os.MkdirAll(dstPath, 0777)
 	if err != nil {
 		return err
 	}
-	resp, err := http.Get(c.url)
+	resp, err := http.Get(c.U.String())
 	if err != nil {
 		return err
 	}
@@ -57,12 +65,10 @@ func (c *Card) Save(dataRootPath string) error {
 	return nil
 }
 
-func RetrieveCards(urls []string, cardch chan Card, finch chan bool) {
-	for _, url := range urls {
-		if len(url) == 0 {
-			continue
-		}
-		resp, err := http.Get(url)
+// RetrieveCards parse HTML referenced by cardPageURLch and create Card instance.
+func RetrieveCards(cardPageURLch <-chan *url.URL, cardch chan<- Card, finch chan bool) {
+	for cardPageURL := range cardPageURLch {
+		resp, err := http.Get(cardPageURL.String())
 		if err != nil {
 			log.Fatalln(err)
 		}
@@ -88,8 +94,12 @@ func RetrieveCards(urls []string, cardch chan Card, finch chan bool) {
 					isA = true
 					for _, v := range token.Attr {
 						if v.Key == "href" && strings.HasSuffix(v.Val, ".zip") {
-							s := strings.Split(url, "/")
-							card.url = strings.Join(s[:len(s)-1], "/") + v.Val[1:]
+							s := strings.Split(cardPageURL.String(), "/")
+							if u, err := url.Parse(strings.Join(s[:len(s)-1], "/") + v.Val[1:]); err != nil {
+								log.Fatalln(err)
+							} else if u.IsAbs() {
+								card.U = u
+							}
 							break
 						}
 					}
@@ -119,15 +129,14 @@ func RetrieveCards(urls []string, cardch chan Card, finch chan bool) {
 			}
 		}
 	}
-	finch <- true
+	close(cardch)
+	return
 }
 
-func RetrieveCardPages(urls []string, urlch chan string, finch chan bool) {
-	for _, url := range urls {
-		if len(url) == 0 {
-			continue
-		}
-		resp, err := http.Get(url)
+// RetrieveCardPages retrieves each card page from index.
+func RetrieveCardPages(allIndexURLch <-chan *url.URL, cardPageURLch chan<- *url.URL) {
+	for allIndexURL := range allIndexURLch {
+		resp, err := http.Get(allIndexURL.String())
 		if err != nil {
 			log.Fatalln(err)
 		}
@@ -146,7 +155,13 @@ func RetrieveCardPages(urls []string, urlch chan string, finch chan bool) {
 				case "a":
 					for _, v := range token.Attr {
 						if v.Key == "href" && strings.HasPrefix(v.Val, "../cards") {
-							urlch <- "http://www.aozora.gr.jp" + strings.Trim(v.Val, "..")
+							u, err := url.Parse("http://www.aozora.gr.jp" + strings.Trim(v.Val, ".."))
+							if err != nil {
+								log.Fatalln(err)
+							}
+							if u.IsAbs() {
+								cardPageURLch <- u
+							}
 							break
 						}
 					}
@@ -154,16 +169,14 @@ func RetrieveCardPages(urls []string, urlch chan string, finch chan bool) {
 			}
 		}
 	}
-	finch <- true
+	close(cardPageURLch)
+	return
 }
 
-func RetrieveAllIndexUrls(urls []string, urlch chan string, finch chan bool) {
-	for _, url := range urls {
-		if len(url) == 0 {
-			// TODO:Should check in retrieveFirstIndexUrls
-			continue
-		}
-		resp, err := http.Get(url)
+// RetrieveAllIndexURLs retrieves all index URLs.
+func RetrieveAllIndexURLs(firstIndexURLch <-chan *url.URL, allIndexURLch chan<- *url.URL) {
+	for firstIndexURL := range firstIndexURLch {
+		resp, err := http.Get(firstIndexURL.String())
 		if err != nil {
 			log.Fatalln(err)
 		}
@@ -182,7 +195,13 @@ func RetrieveAllIndexUrls(urls []string, urlch chan string, finch chan bool) {
 				case "a":
 					for _, v := range token.Attr {
 						if v.Key == "href" && strings.HasPrefix(v.Val, "sakuhin") {
-							urlch <- "http://www.aozora.gr.jp/index_pages/" + v.Val
+							u, err := url.Parse("http://www.aozora.gr.jp/index_pages/" + v.Val)
+							if err != nil {
+								log.Fatalln(err)
+							}
+							if u.IsAbs() {
+								allIndexURLch <- u
+							}
 							break
 						}
 					}
@@ -190,17 +209,19 @@ func RetrieveAllIndexUrls(urls []string, urlch chan string, finch chan bool) {
 			}
 		}
 	}
-	finch <- true
+	close(allIndexURLch)
+	return
 }
 
-func RetrieveFirstIndexUrls(r io.Reader, urlch chan string, finch chan bool) {
+// RetrieveFirstIndexURLs retrieves first index pages with seed.
+func RetrieveFirstIndexURLs(r io.Reader, firstIndexURLch chan *url.URL) {
 	insideSakuhinListTable := false
 	d := html.NewTokenizer(r)
 	for {
 		// token type
 		tokenType := d.Next()
 		if tokenType == html.ErrorToken {
-			finch <- true
+			//finch <- true
 			break
 		}
 		token := d.Token()
@@ -219,7 +240,13 @@ func RetrieveFirstIndexUrls(r io.Reader, urlch chan string, finch chan bool) {
 				}
 				for _, v := range token.Attr {
 					if v.Key == "href" {
-						urlch <- "http://www.aozora.gr.jp/" + v.Val
+						u, err := url.Parse("http://www.aozora.gr.jp/" + v.Val)
+						if err != nil {
+							log.Fatalln(err)
+						}
+						if u.IsAbs() {
+							firstIndexURLch <- u
+						}
 					}
 				}
 			}
@@ -229,5 +256,6 @@ func RetrieveFirstIndexUrls(r io.Reader, urlch chan string, finch chan bool) {
 			}
 		}
 	}
+	close(firstIndexURLch)
 	return
 }
