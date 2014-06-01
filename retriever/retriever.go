@@ -51,17 +51,19 @@ func (c *Card) Save(dataRootPath string) error {
 	if err != nil {
 		return err
 	}
-	resp, err := http.Get(c.U.String())
-	if err != nil {
-		return err
+	if c.U != nil {
+		resp, err := http.Get(c.U.String())
+		if err != nil {
+			return err
+		}
+		defer resp.Body.Close()
+		fileContent, err := ioutil.ReadAll(resp.Body)
+		if err != nil {
+			return err
+		}
+		ioutil.WriteFile(path.Join(dstPath, c.sakuhinName+".zip"), fileContent, 0777)
+		log.Printf("%s was downloaded and saved to %s\n", c.sakuhinName, dstPath)
 	}
-	defer resp.Body.Close()
-	fileContent, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return err
-	}
-	ioutil.WriteFile(path.Join(dstPath, c.sakuhinName+".zip"), fileContent, 0777)
-	log.Printf("%s was downloaded and saved to %s\n", c.sakuhinName, dstPath)
 	return nil
 }
 
